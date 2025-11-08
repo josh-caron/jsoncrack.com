@@ -34,6 +34,7 @@ interface JsonActions {
   setFile: (fileData: File) => void;
   setJsonSchema: (jsonSchema: object | null) => void;
   checkEditorSession: (url: Query, widget?: boolean) => void;
+  updateNodeAtPath: (path: (string | number)[], updatedValues: Record<string, any>) => void;
 }
 
 export type File = {
@@ -154,6 +155,53 @@ const useFile = create<FileStates & JsonActions>()((set, get) => ({
 
     if (format) set({ format });
     get().setContents({ contents, hasChanges: false });
+  },
+  updateNodeAtPath: async (path, updatedValues) => {
+    try {
+      const currentFormat = get().format;
+      const currentContents = get().contents;
+      
+      // Parse current content to JSON
+      const jsonData = await contentToJson(currentContents, currentFormat);
+      
+      // Navigate to the target object using the path
+      let target: any = jsonData;
+      for (let i = 0; i < path.length - 1; i++) {
+        target = target[path[i]];
+      }
+      
+      // If path has elements, we're inside a nested structure
+      if (path.length > 0) {
+        const lastKey = path[path.length - 1];
+        const parent = path.length > 1 ? target : jsonData;
+        const currentNode = parent[lastKey];
+        
+        // If the current node is an object, update its properties
+        if (typeof currentNode === "object" && currentNode !== null && !Array.isArray(currentNode)) {
+          Object.assign(currentNode, updatedValues);
+        } else {
+          // For primitive values, if there's only one key in updatedValues, use that value
+          const keys = Object.keys(updatedValues);
+          if (keys.length === 1) {
+            parent[lastKey] = updatedValues[keys[0]];
+          }
+        }
+      } else {
+        // Root level update
+        Object.assign(jsonData, updatedValues);
+      }
+      
+      // Convert back to the current format
+      const updatedContent = await jsonToContent(JSON.stringify(jsonData, null, 2), currentFormat);
+      
+      // Update the contents
+      get().setContents({ contents: updatedContent, hasChanges: true });
+      
+      toast.success("Node updated successfully!");
+    } catch (error) {
+      console.error("Failed to update node:", error);
+      toast.error("Failed to update node. Please check your values.");
+    }
   },
 }));
 
